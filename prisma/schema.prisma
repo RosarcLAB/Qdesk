@@ -1,0 +1,213 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users / Team ────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  firebaseUid   String   @unique
+  email         String   @unique
+  name          String
+  companyEmail  String?
+  phone         String?
+  jobTitle      String?
+  discipline    String?
+  role          UserRole @default(STAFF)
+  overheadRate  Float?   // fixed or variable hourly overhead cost
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  projectMembers ProjectMember[]
+  timeEntries    TimeEntry[]
+  tasksAssigned  TaskAssignee[]
+  ledProjects    Project[]       @relation("ProjectLead")
+}
+
+enum UserRole {
+  ADMIN
+  DIRECTOR
+  STAFF
+}
+
+// ─── Clients & Prospects ─────────────────────────────────────────────────────
+
+model Client {
+  id          String       @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  website     String?
+  address     String?
+  description String?
+  status      ClientStatus @default(PROSPECT)
+  convertedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  projects Project[]
+}
+
+enum ClientStatus {
+  PROSPECT
+  CLIENT
+}
+
+// ─── Projects ─────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(cuid())
+  number      String        @unique // e.g. PM2608-25
+  name        String
+  description String?
+  address     String?
+  postcode    String?
+  quote       Float?        // monetary amount
+  status      ProjectStatus @default(ENQUIRY)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  leadId String?
+  lead   User?   @relation("ProjectLead", fields: [leadId], references: [id])
+
+  members     ProjectMember[]
+  tasks       Task[]
+  timeEntries TimeEntry[]
+}
+
+enum ProjectStatus {
+  ENQUIRY
+  ACTIVE
+  ON_HOLD
+  COMPLETE
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+model Task {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  priority    Priority   @default(MEDIUM)
+  status      TaskStatus @default(TODO)
+  startDate   DateTime?
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  assignees   TaskAssignee[]
+  timeEntries TimeEntry[]
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  COMPLETE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model TaskAssignee {
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+}
+
+// ─── Timesheets ───────────────────────────────────────────────────────────────
+
+model TimeEntry {
+  id        String   @id @default(cuid())
+  date      DateTime @db.Date
+  hours     Float
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  taskId String?
+  task   Task?   @relation(fields: [taskId], references: [id])
+
+  @@unique([userId, projectId, date])
+}
+
+model TimesheetWeek {
+  id        String          @id @default(cuid())
+  weekStart DateTime        @db.Date
+  userId    String
+  status    TimesheetStatus @default(DRAFT)
+  updatedAt DateTime        @updatedAt
+
+  @@unique([userId, weekStart])
+}
+
+enum TimesheetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+// ─── QuickBooks Sync (read-only) ──────────────────────────────────────────────
+
+model QBInvoice {
+  id           String    @id @default(cuid())
+  qbId         String    @unique
+  customerName String
+  amount       Float
+  balance      Float
+  dueDate      DateTime?
+  txnDate      DateTime
+  status       String
+  syncedAt     DateTime  @default(now())
+}
+
+model QBBankBalance {
+  id        String   @id @default(cuid())
+  accountId String
+  balance   Float
+  asOf      DateTime @db.Date
+  syncedAt  DateTime @default(now())
+
+  @@unique([accountId, asOf])
+}
